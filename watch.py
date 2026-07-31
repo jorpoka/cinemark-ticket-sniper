@@ -49,6 +49,7 @@ EXCLUDED_ROWS = set(FILTERS.get("excluded_rows", []))
 EARLIEST = FILTERS.get("earliest_showtime", "00:00")
 LATEST = FILTERS.get("latest_showtime", "23:59")
 PARTY_SIZE = int(FILTERS.get("party_size", 1))
+EDGE_COLS  = int(FILTERS.get("edge_cols", 0))
 REQUEST_GAP = float(PACING.get("request_gap_seconds", 8))
 DATE_SCAN_EVERY = int(PACING.get("date_scan_every", 3))
 POLL_MINUTES = float(PACING.get("poll_minutes", 5))
@@ -146,8 +147,7 @@ def showtimes_for(date: str) -> tuple[str | None, dict[str, str]]:
 
 def qualifying(iso: str) -> bool:
     return EARLIEST <= iso[11:16] <= LATEST
-
-
+  
 def available_seats(theater_id: str, showtime_id: str, iso: str) -> list[Seat]:
     url = (f"{BASE}/TicketSeatMap/?TheaterId={theater_id}&ShowtimeId={showtime_id}"
            f"&CinemarkMovieId={MOVIE_ID}&Showtime={iso}")
@@ -155,10 +155,15 @@ def available_seats(theater_id: str, showtime_id: str, iso: str) -> list[Seat]:
     if "seatBlock" not in html:
         log(f"WARN: seat map {showtime_id} returned no seat markup (page changed?)")
         return []
-    return [Seat(row, int(num), int(col))
-            for row, num, col in AVAILABLE_SEAT.findall(html)
-            if row not in EXCLUDED_ROWS]
-
+    all_seats = [Seat(row, int(num), int(col)) for row, num, col in AVAILABLE_SEAT.findall(html)
+                 if row not in EXCLUDED_ROWS]
+    if EDGE_COLS > 0:
+        cols = [s.col for s in all_seats]
+        if cols:
+            min_col, max_col = min(cols), max(cols)
+            all_seats = [s for s in all_seats
+                         if s.col >= min_col + EDGE_COLS and s.col <= max_col - EDGE_COLS]
+    return all_seats
 
 def seat_blocks(seats: list[Seat]) -> list[list[Seat]]:
     """Group seats into runs of physically adjacent seats (consecutive columns)."""
